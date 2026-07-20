@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  phone             String?
+  name              String?
+  avatar            String?
+  preferredLanguage String?   @default("en")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  bookings          Booking[]
+  addresses         Address[]
+}
+
+model Booking {
+  id                  String    @id @default(uuid())
+  userId              String
+  serviceType         String
+  pickup              String
+  destination         String?
+  datetime            DateTime
+  passengers          Int       @default(1)
+  flightNumber        String?
+  vehicleType         String
+  specialInstructions String?
+  status              String    @default("pending")
+  fare                Float
+  metadata            Json?
+  paymentMethod       String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user                User      @relation(fields: [userId], references: [id])
+  ride                Ride?
+  payment             Payment?
+}
+
+model Ride {
+  id           String    @id @default(uuid())
+  bookingId    String    @unique
+  driverName   String?
+  driverPhone  String?
+  vehicleModel String?
+  vehiclePlate String?
+  status       String    @default("assigned")
+  trackingUrl  String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+
+  booking      Booking   @relation(fields: [bookingId], references: [id])
+}
+
+model Address {
+  id        String @id @default(uuid())
+  userId    String
+  label     String
+  address   String
+  lat       Float
+  lng       Float
+  iconType  String @default("home")
+
+  user      User   @relation(fields: [userId], references: [id])
+}
+
+model Payment {
+  id            String  @id @default(uuid())
+  bookingId     String  @unique
+  amount        Float
+  method        String
+  status        String  @default("pending")
+  transactionId String?
+  receiptUrl    String?
+
+  booking       Booking @relation(fields: [bookingId], references: [id])
+}
