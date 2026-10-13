@@ -9,77 +9,65 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import { supabase } from '../../lib/supabaseClient';
 import { VEHICLES } from '../../lib/constants';
 import { calculateDistance, calculateFareAmount } from '../../lib/fareCalculator';
+import { apiUrl } from '../../lib/api';
+import { useAuth } from '../../hooks/useAuth';
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY || 'pk_test_123'); // Dummy fallback if not set
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '');
 
-const CheckoutForm = ({ clientSecret, bookingId, paymentMethod, email, receiptData, onSuccess, onError }: any) => {
+const CheckoutForm = ({ paymentMethod, email, receiptData, onSuccess, onError }: any) => {
   const stripe = useStripe();
   const elements = useElements();
   const [isConfirming, setIsConfirming] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
+  const createBooking = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Your session has expired. Please sign in again.');
 
+    const response = await fetch(apiUrl('/api/bookings'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user.id,
+        userEmail: user.email,
+        serviceType: receiptData.serviceType || 'City Transfer',
+        pickup: receiptData.pickup,
+        destination: receiptData.destination,
+        datetime: receiptData.datetime,
+        passengers: receiptData.passengers,
+        vehicleType: receiptData.vehicleType,
+        fare: receiptData.amount,
+        flightNumber: receiptData.flightNumber,
+        specialInstructions: receiptData.instructions,
+        metadata: receiptData.metadata,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.booking?.id) {
+      throw new Error(data.error || 'Unable to create your booking. No payment was taken.');
+    }
+    return { id: data.booking.id, email: user.email || email };
+  };
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!stripe || !elements || isConfirming) return;
     setIsConfirming(true);
-
-    if (paymentMethod === 'stripe') {
-      const { error } = await stripe.confirmPayment({
-        elements,
-        redirect: 'if_required',
-      });
-      if (error) {
-        onError(error.message);
-        setIsConfirming(false);
-        return;
-      }
-    }
-
-    // First create the booking in DB
-    let actualBookingId = bookingId;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const createRes = await fetch('http://localhost:3000/api/bookings', {
+      const booking = await createBooking();
+      if (paymentMethod === 'stripe') {
+        const { error } = await stripe.confirmPayment({ elements, redirect: 'if_required' });
+        if (error) throw new Error(error.message);
+      }
+      const response = await fetch(apiUrl('/api/payments/confirm'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user?.id || 'anonymous',
-          serviceType: receiptData.metadata?.serviceType || 'City Transfer',
-          pickup: receiptData.pickup,
-          destination: receiptData.destination,
-          datetime: receiptData.datetime,
-          passengers: receiptData.passengers,
-          vehicleType: receiptData.vehicleType,
-          fare: receiptData.amount,
-          flightNumber: receiptData.flightNumber,
-          specialInstructions: receiptData.instructions,
-          metadata: receiptData.metadata
-        })
+        body: JSON.stringify({ bookingId: booking.id, paymentMethod, email: booking.email, receiptData }),
       });
-      const createData = await createRes.json();
-      if (createData.booking?.id) {
-        actualBookingId = createData.booking.id;
-      }
-    } catch (err) {
-      console.error("Failed to create booking record", err);
-    }
-
-    // Call backend to complete payment and send email
-    try {
-      const confirmRes = await fetch('http://localhost:3000/api/payments/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          bookingId: actualBookingId, 
-          paymentMethod, 
-          email,
-          receiptData
-        })
-      });
-      const confirmData = await confirmRes.json();
-      onSuccess(confirmData.warning);
-    } catch (err: any) {
-      onError(err.message || "Failed to confirm payment on server");
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to confirm payment.');
+      onSuccess(Boolean(data.warning));
+    } catch (error: any) {
+      onError(error.message || 'Failed to complete booking.');
     } finally {
       setIsConfirming(false);
     }
@@ -87,29 +75,13 @@ const CheckoutForm = ({ clientSecret, bookingId, paymentMethod, email, receiptDa
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {paymentMethod === 'stripe' && (
-        <div className="bg-white p-4 rounded-xl border border-border">
-          <PaymentElement />
-        </div>
-      )}
-      <Button 
-        type="submit"
-        disabled={isConfirming || !stripe || !elements}
-        className="w-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground text-lg rounded-xl shadow-lg relative overflow-hidden"
-      >
-        {isConfirming ? (
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"></div>
-            Processing...
-          </div>
-        ) : (
-          "Confirm & Pay"
-        )}
+      <div className="bg-white p-4 rounded-xl border border-border"><PaymentElement /></div>
+      <Button type="submit" disabled={isConfirming || !stripe || !elements} className="w-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground text-lg rounded-xl shadow-lg relative overflow-hidden">
+        {isConfirming ? 'Processing...' : 'Confirm & Pay'}
       </Button>
     </form>
   );
 };
-
 
 const EditableRow = ({ label, value, type = 'text', options = [], onSave, isEditing, setEditing, className = '' }: any) => {
   const [tempValue, setTempValue] = React.useState(value);
@@ -235,22 +207,25 @@ const ReviewPayment: React.FC<ReviewPaymentProps> = ({ onBack }) => {
   const [isSuccess, setIsSuccess] = useState(false);
   const [hasWarning, setHasWarning] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const { user } = useAuth();
 
   useEffect(() => {
     // Fetch PaymentIntent
     const fetchIntent = async () => {
       try {
-        const res = await fetch('http://localhost:3000/api/payments/intent', {
+        const res = await fetch(apiUrl('/api/payments/intent'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bookingId: 'test-id', amount: draftDetails.basePrice || 45.00 })
+          body: JSON.stringify({ bookingId: 'pending', amount: draftDetails.basePrice || 45.00 })
         });
         const data = await res.json();
-        if (data.clientSecret) {
-          setClientSecret(data.clientSecret);
+        if (!res.ok || !data.clientSecret) {
+          throw new Error(data.error || 'Payment service is unavailable.');
         }
+        setClientSecret(data.clientSecret);
       } catch (err) {
-        console.error("Failed to create intent", err);
+        console.error('Failed to create intent', err);
+        setErrorMessage('Unable to initialize card payment. Please try again or choose cash.');
       }
     };
     fetchIntent();
@@ -284,11 +259,11 @@ const ReviewPayment: React.FC<ReviewPaymentProps> = ({ onBack }) => {
             <h3 className="font-semibold border-b border-border pb-2">Receipt Preview</h3>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Booking ID</span>
-              <span className="font-medium">#UL-8492X</span>
+              <span className="font-medium">Booking confirmed</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Amount Paid</span>
-              <span className="font-medium text-accent">S$ 45.00</span>
+              <span className="font-medium text-accent">S$ {draftDetails.basePrice?.toFixed(2) || '45.00'}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Payment Method</span>
@@ -489,63 +464,62 @@ const ReviewPayment: React.FC<ReviewPaymentProps> = ({ onBack }) => {
               <Elements stripe={stripePromise} options={{ clientSecret, appearance: { theme: 'flat' } }}>
                 <CheckoutForm 
                   clientSecret={clientSecret}
-                  bookingId="test-id"
+                  bookingId=""
                   paymentMethod={paymentMethod}
-                  email="user@example.com"
+                  email={user?.email || ''}
                   receiptData={{ 
                     amount: draftDetails.basePrice || 45.00, 
-                    destination: bookingDetails.destination,
-                    pickup: bookingDetails.pickup,
-                    datetime: bookingDetails.datetime,
-                    passengers: bookingDetails.passengers,
-                    vehicleType: bookingDetails.vehicleType,
-                    flightNumber: bookingDetails.flightNumber,
-                    instructions: bookingDetails.instructions,
-                    metadata: bookingDetails.metadata
+                    serviceType: draftDetails.serviceType,
+                    destination: draftDetails.destination,
+                    pickup: draftDetails.pickup,
+                    datetime: draftDetails.datetime,
+                    passengers: draftDetails.passengers,
+                    vehicleType: draftDetails.vehicleType,
+                    flightNumber: draftDetails.flightNumber,
+                    instructions: draftDetails.instructions,
+                    metadata: draftDetails.metadata
                   }}
                   onSuccess={handleSuccess}
                   onError={setErrorMessage}
                 />
               </Elements>
             ) : paymentMethod === 'cash' ? (
-              <Button 
+              <Button
                 onClick={async () => {
                   setErrorMessage('');
                   try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    const createRes = await fetch('http://localhost:3000/api/bookings', {
+                    const { data: { user: currentUser } } = await supabase.auth.getUser();
+                    if (!currentUser) throw new Error('Your session has expired. Please sign in again.');
+                    const createResponse = await fetch(apiUrl('/api/bookings'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({
-                        userId: user?.id || 'anonymous',
+                        userId: currentUser.id,
+                        userEmail: currentUser.email,
                         serviceType: draftDetails.serviceType || 'City Transfer',
-                        pickup: bookingDetails.pickup,
-                        destination: bookingDetails.destination,
-                        datetime: bookingDetails.datetime,
-                        passengers: bookingDetails.passengers,
-                        vehicleType: bookingDetails.vehicleType,
+                        pickup: draftDetails.pickup,
+                        destination: draftDetails.destination,
+                        datetime: draftDetails.datetime,
+                        passengers: draftDetails.passengers,
+                        vehicleType: draftDetails.vehicleType,
                         fare: draftDetails.basePrice,
-                        flightNumber: bookingDetails.flightNumber,
-                        specialInstructions: bookingDetails.instructions,
-                        metadata: bookingDetails.metadata
-                      })
+                        flightNumber: draftDetails.flightNumber,
+                        specialInstructions: draftDetails.instructions,
+                        metadata: draftDetails.metadata,
+                      }),
                     });
-                    const createData = await createRes.json();
-                    
-                    const confirmRes = await fetch('http://localhost:3000/api/payments/confirm', {
+                    const createData = await createResponse.json();
+                    if (!createResponse.ok || !createData.booking?.id) throw new Error(createData.error || 'Unable to create your booking.');
+                    const confirmResponse = await fetch(apiUrl('/api/payments/confirm'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ 
-                        bookingId: createData.booking?.id || 'test-id', 
-                        paymentMethod: 'cash', 
-                        email: user?.email || 'user@example.com',
-                        receiptData: { amount: draftDetails.basePrice }
-                      })
+                      body: JSON.stringify({ bookingId: createData.booking.id, paymentMethod: 'cash', email: currentUser.email, receiptData: { amount: draftDetails.basePrice } }),
                     });
-                    const confirmData = await confirmRes.json();
-                    handleSuccess(confirmData.warning);
-                  } catch (err: any) {
-                    setErrorMessage(err.message || 'Failed to complete cash booking');
+                    const confirmData = await confirmResponse.json();
+                    if (!confirmResponse.ok || !confirmData.success) throw new Error(confirmData.error || 'Failed to confirm cash booking.');
+                    handleSuccess(Boolean(confirmData.warning));
+                  } catch (error: any) {
+                    setErrorMessage(error.message || 'Failed to complete cash booking.');
                   }
                 }}
                 className="w-full h-14 bg-primary hover:bg-primary/90 text-primary-foreground text-lg rounded-xl shadow-lg"

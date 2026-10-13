@@ -61,9 +61,28 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
   try {
     // In a real app, userId comes from authenticated token
     const { 
-      userId, serviceType, pickup, destination, datetime, passengers, vehicleType, fare, flightNumber, specialInstructions,
+      userId, userEmail, serviceType, pickup, destination, datetime, passengers, vehicleType, fare, flightNumber, specialInstructions,
       metadata
     } = req.body;
+
+    if (!userId || userId === 'anonymous' || !userEmail || !serviceType || !pickup || !datetime || !vehicleType || !Number.isFinite(Number(fare))) {
+      res.status(400).json({ error: 'Missing or invalid booking details' });
+      return;
+    }
+
+    const parsedDate = new Date(datetime);
+    if (Number.isNaN(parsedDate.getTime())) {
+      res.status(400).json({ error: 'Invalid booking date and time' });
+      return;
+    }
+
+    // Supabase Auth and the application database are separate systems. Ensure
+    // the local user row exists before creating the required Booking relation.
+    await prisma.user.upsert({
+      where: { id: userId },
+      update: { email: userEmail },
+      create: { id: userId, email: userEmail },
+    });
 
     const booking = await prisma.booking.create({
       data: {
@@ -71,10 +90,10 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
         serviceType,
         pickup,
         destination,
-        datetime: new Date(datetime),
-        passengers,
+        datetime: parsedDate,
+        passengers: Number(passengers) || 1,
         vehicleType,
-        fare,
+        fare: Number(fare),
         flightNumber,
         specialInstructions,
         metadata,
@@ -91,7 +110,7 @@ export const createBooking = async (req: Request, res: Response): Promise<void> 
 
 export const getUserBookings = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = req.params;
+    const userId = String(req.params.userId);
     const bookings = await prisma.booking.findMany({
       where: { userId },
       orderBy: { datetime: 'desc' }
@@ -105,7 +124,7 @@ export const getUserBookings = async (req: Request, res: Response): Promise<void
 
 export const updateBooking = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { 
       serviceType, pickup, destination, datetime, passengers, vehicleType, fare, flightNumber, specialInstructions,
       metadata, status

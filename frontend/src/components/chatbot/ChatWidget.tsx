@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, X, Send, Mic } from 'lucide-react';
 import { Button } from '../ui/button';
+import { apiUrl } from '../../lib/api';
 
 const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -27,7 +28,7 @@ const ChatWidget = () => {
         content: m.text
       }));
 
-      const response = await fetch('http://localhost:3000/api/chat', {
+      const response = await fetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: apiMessages })

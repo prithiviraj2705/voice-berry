@@ -1,13 +1,10 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { Resend } from 'resend';
-import { PrismaClient } from '@prisma/client';
 
 import { prisma } from '../prisma';
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-01-27.acacia'
-}) : null;
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
@@ -15,7 +12,8 @@ export const createPaymentIntent = async (req: Request, res: Response): Promise<
   try {
     const { bookingId, amount } = req.body;
 
-    if (!bookingId || !amount) {
+    const numericAmount = Number(amount);
+    if (!bookingId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
       res.status(400).json({ error: 'Missing bookingId or amount' });
       return;
     }
@@ -28,7 +26,7 @@ export const createPaymentIntent = async (req: Request, res: Response): Promise<
 
     // Create a PaymentIntent with the order amount and currency
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // Stripe expects cents
+      amount: Math.round(numericAmount * 100), // Stripe expects cents
       currency: 'sgd',
       metadata: { bookingId },
       // In latest Stripe API, automatic_payment_methods is enabled by default.
@@ -54,6 +52,11 @@ export const confirmPaymentAndSendEmail = async (req: Request, res: Response): P
     }
 
     // Update booking and ride statuses in database
+    if (!paymentMethod || !receiptData?.amount) {
+      res.status(400).json({ error: 'Missing payment confirmation details' });
+      return;
+    }
+
     const booking = await prisma.booking.update({
       where: { id: bookingId },
       data: { 
@@ -67,10 +70,16 @@ export const confirmPaymentAndSendEmail = async (req: Request, res: Response): P
 
     // Optionally create a payment record
     if (receiptData?.amount || booking.fare) {
-       await prisma.payment.create({
-         data: {
+       await prisma.payment.upsert({
+         where: { bookingId },
+         update: {
+           amount: Number(receiptData?.amount || booking.fare),
+           method: paymentMethod || 'stripe',
+           status: 'succeeded'
+         },
+         create: {
            bookingId,
-           amount: receiptData?.amount || booking.fare,
+           amount: Number(receiptData?.amount || booking.fare),
            method: paymentMethod || 'stripe',
            status: 'succeeded'
          }

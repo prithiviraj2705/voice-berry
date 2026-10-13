@@ -3,7 +3,7 @@ import { prisma } from '../prisma';
 
 export const getUserAddresses = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { userId } = req.params;
+    const userId = String(req.params.userId);
     const addresses = await prisma.address.findMany({
       where: { userId }
     });
@@ -43,7 +43,7 @@ export const addAddress = async (req: Request, res: Response): Promise<void> => 
 
 export const deleteAddress = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     await prisma.address.delete({
       where: { id }
     });

@@ -13,6 +13,7 @@ import TrackRidePage from './TrackRidePage';
 import { useNavigate } from 'react-router-dom';
 import ManualBooking from '../components/booking/ManualBooking';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { apiUrl } from '../lib/api';
 
 const DashboardOverview = ({ bookings, onCancelBooking, onModifyBooking }: { bookings: any[], onCancelBooking: (id: string) => void, onModifyBooking: (b: any) => void }) => {
   const navigate = useNavigate();
@@ -133,7 +134,7 @@ const DashboardPage = () => {
 
   const fetchBookings = () => {
     if (user?.id) {
-      fetch(`http://localhost:3000/api/bookings/${user.id}`)
+      fetch(apiUrl(`/api/bookings/${user.id}`))
         .then(res => res.json())
         .then(data => setBookings(data.bookings || []))
         .catch(console.error);
@@ -147,7 +148,7 @@ const DashboardPage = () => {
   const handleCancelBooking = async (bookingId: string) => {
     if (!window.confirm("Are you sure you want to cancel this ride?")) return;
     try {
-      await fetch(`http://localhost:3000/api/bookings/${bookingId}`, {
+      await fetch(apiUrl(`/api/bookings/${bookingId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'cancelled' })
@@ -167,7 +168,7 @@ const DashboardPage = () => {
 
   const handleSaveModification = async (updatedData: any) => {
     try {
-      await fetch(`http://localhost:3000/api/bookings/${bookingToModify.id}`, {
+      await fetch(apiUrl(`/api/bookings/${bookingToModify.id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedData)

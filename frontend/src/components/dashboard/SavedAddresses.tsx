@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { MapPin, Home, Briefcase, Plus, Loader2, Trash2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { apiUrl } from '../../lib/api';
 
 export const SavedAddresses = () => {
   const { user } = useAuth();
@@ -25,7 +26,7 @@ export const SavedAddresses = () => {
   const fetchAddresses = async () => {
     if (!user?.id) return;
     try {
-      const res = await fetch(`http://localhost:3000/api/addresses/${user.id}`);
+      const res = await fetch(apiUrl(`/api/addresses/${user.id}`));
       const data = await res.json();
       setAddresses(data.addresses || []);
     } catch (err) {
@@ -56,7 +57,7 @@ export const SavedAddresses = () => {
       const { lat, lng } = await geocodeAddress(address);
       
       // 2. Save
-      const res = await fetch('http://localhost:3000/api/addresses', {
+      const res = await fetch(apiUrl('/api/addresses'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -86,7 +87,7 @@ export const SavedAddresses = () => {
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this address?')) return;
     try {
-      const res = await fetch(`http://localhost:3000/api/addresses/${id}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/addresses/${id}`), { method: 'DELETE' });
       if (res.ok) {
         setAddresses(addresses.filter(a => a.id !== id));
       }

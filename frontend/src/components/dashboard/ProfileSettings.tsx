@@ -5,6 +5,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { useAuth } from '../../hooks/useAuth';
 import { User, Mail, Phone, Globe, Save, Loader2, CheckCircle2 } from 'lucide-react';
+import { apiUrl } from '../../lib/api';
 
 export const ProfileSettings = () => {
   const { user } = useAuth();
@@ -20,7 +21,7 @@ export const ProfileSettings = () => {
 
   useEffect(() => {
     if (user?.id) {
-      fetch(`http://localhost:3000/api/users/${user.id}`)
+      fetch(apiUrl(`/api/users/${user.id}`))
         .then(res => res.json())
         .then(data => {
           if (data.user) {
@@ -43,7 +44,7 @@ export const ProfileSettings = () => {
     
     setSaving(true);
     try {
-      const res = await fetch(`http://localhost:3000/api/users/${user.id}`, {
+      const res = await fetch(apiUrl(`/api/users/${user.id}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

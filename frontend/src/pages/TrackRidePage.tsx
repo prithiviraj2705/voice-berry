@@ -7,6 +7,7 @@ import { useAuth } from '../hooks/useAuth';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { ArrowLeft, Clock, MapPin, Navigation, User, Phone, CheckCircle2, Navigation2, CheckCircle } from 'lucide-react';
+import { apiUrl } from '../lib/api';
 
 // Fix leaflet icon
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -45,7 +46,7 @@ const TrackRidePage = () => {
 
   useEffect(() => {
     if (user?.id) {
-      fetch(`http://localhost:3000/api/bookings/${user.id}`)
+      fetch(apiUrl(`/api/bookings/${user.id}`))
         .then(res => res.json())
         .then(data => {
           const found = data.bookings.find((b: any) => b.id === bookingId);

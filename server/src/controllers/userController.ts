@@ -3,7 +3,7 @@ import { prisma } from '../prisma';
 
 export const getUserProfile = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const user = await prisma.user.findUnique({
       where: { id }
     });
@@ -21,7 +21,7 @@ export const getUserProfile = async (req: Request, res: Response) => {
 
 export const updateUserProfile = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { name, phone, preferredLanguage } = req.body;
     
     const user = await prisma.user.update({

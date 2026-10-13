@@ -6,6 +6,7 @@ import { Badge } from '../ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { calculateDistance, calculateFareAmount } from '../../lib/fareCalculator';
 import { VEHICLES } from '../../lib/constants';
+import { apiUrl } from '../../lib/api';
 
 // Types for Web Speech API
 declare global {
@@ -193,7 +194,7 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
 
   const extractIntentFromAudio = async (text: string) => {
     try {
-      const response = await fetch('http://localhost:3000/api/bookings/extract-intent', {
+      const response = await fetch(apiUrl('/api/bookings/extract-intent'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
