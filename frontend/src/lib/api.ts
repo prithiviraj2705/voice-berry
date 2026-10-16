@@ -9,17 +9,24 @@ export const API_BASE_URL = configuredApiUrl || (import.meta.env.DEV ? 'http://l
 export const apiUrl = (path: string) => `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(apiUrl(path), {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {}),
+      },
+    });
+  } catch (error) {
+    console.error(`Network request failed: ${apiUrl(path)}`, error);
+    throw new Error('The booking server is unavailable. Please check your connection and try again.');
+  }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || `Request failed (${response.status})`);
+    const detail = typeof payload.error === 'string' ? payload.error : `Request failed (${response.status})`;
+    throw new Error(detail);
   }
   return payload as T;
 }

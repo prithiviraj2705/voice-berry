@@ -1,3 +1,15 @@
-node_modules
+# Dependencies and generated output
+node_modules/
+dist/
+dist-ssr/
+
+# Local environment and secret files
+.env
+.env.*
+!.env.example
+
+# OS/editor files
 .DS_Store
-node_modules
+.vscode/
+.idea/
+*.local

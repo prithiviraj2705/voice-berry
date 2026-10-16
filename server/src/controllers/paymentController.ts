@@ -13,8 +13,18 @@ export const createPaymentIntent = async (req: Request, res: Response): Promise<
     const { bookingId, amount } = req.body;
 
     const numericAmount = Number(amount);
-    if (!bookingId || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+    if (!bookingId || bookingId === 'pending' || !Number.isFinite(numericAmount) || numericAmount <= 0) {
       res.status(400).json({ error: 'Missing bookingId or amount' });
+      return;
+    }
+
+    const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) {
+      res.status(404).json({ error: 'Booking was not found. Please restart checkout.' });
+      return;
+    }
+    if (Math.abs(booking.fare - numericAmount) > 0.01) {
+      res.status(400).json({ error: 'Booking amount does not match the payment amount.' });
       return;
     }
 
@@ -52,7 +62,7 @@ export const confirmPaymentAndSendEmail = async (req: Request, res: Response): P
     }
 
     // Update booking and ride statuses in database
-    if (!paymentMethod || !receiptData?.amount) {
+    if (!['stripe', 'cash'].includes(paymentMethod) || !Number.isFinite(Number(receiptData?.amount))) {
       res.status(400).json({ error: 'Missing payment confirmation details' });
       return;
     }
@@ -61,7 +71,7 @@ export const confirmPaymentAndSendEmail = async (req: Request, res: Response): P
       where: { id: bookingId },
       data: { 
         status: 'confirmed',
-        paymentMethod: paymentMethod || 'stripe' 
+        paymentMethod
       },
       include: {
         user: true

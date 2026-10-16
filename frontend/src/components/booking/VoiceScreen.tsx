@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { X, Mic, Keyboard, Calendar, Users, MapPin, Navigation, Globe } from 'lucide-react';
+import { X, Mic, Calendar, Users, MapPin, Navigation, Globe } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useNavigate } from 'react-router-dom';
 import { calculateDistance, calculateFareAmount } from '../../lib/fareCalculator';
 import { VEHICLES } from '../../lib/constants';
-import { apiUrl } from '../../lib/api';
+import { apiRequest } from '../../lib/api';
 
 // Types for Web Speech API
 declare global {
@@ -41,6 +41,7 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
   const [interimTranscript, setInterimTranscript] = useState('');
   const transcriptRef = useRef('');
   const isProcessingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const [extractedData, setExtractedData] = useState<any>(null);
@@ -98,13 +99,22 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
 
       rec.onend = () => {
         setIsRecording(false);
-        // We do not auto-extract here to prevent stale closures. 
-        // We rely on the user tapping "Stop Recording" (toggleRecording) to process.
+        if (stopRequestedRef.current) {
+          stopRequestedRef.current = false;
+          const fullText = transcriptRef.current.trim();
+          if (!fullText) {
+            setSystemPrompt('No speech was captured. Please try again or switch to manual booking.');
+          } else if (!isProcessingRef.current) {
+            setIsProcessing(true);
+            isProcessingRef.current = true;
+            void extractIntentFromAudio(fullText);
+          }
+        }
       };
 
       setRecognition(rec);
     } else {
-      alert("Your browser doesn't support speech recognition. Please use Manual Booking or try Chrome.");
+      setSystemPrompt('Speech recognition is not supported in this browser. Please switch to manual booking or use Chrome.');
     }
     
     return () => {
@@ -112,21 +122,16 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
         rec.onresult = null;
         rec.onerror = null;
         rec.onend = null;
-        try { rec.abort(); } catch(e) {}
+        try { rec.abort(); } catch {}
       }
     };
   }, [language]); // Re-initialize when language changes
 
   const toggleRecording = () => {
     if (isRecording) {
+      stopRequestedRef.current = true;
       recognition?.stop();
       setIsRecording(false);
-      const fullText = transcriptRef.current;
-      if (fullText && !isProcessingRef.current) {
-        setIsProcessing(true);
-        isProcessingRef.current = true;
-        extractIntentFromAudio(fullText);
-      }
     } else {
       if (!recognition) {
         setSystemPrompt('Voice recognition not available. Please try Chrome.');
@@ -194,19 +199,17 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
 
   const extractIntentFromAudio = async (text: string) => {
     try {
-      const response = await fetch(apiUrl('/api/bookings/extract-intent'), {
+      const resData = await apiRequest<{ data?: any; error?: string }>('/api/bookings/extract-intent', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           transcript: text,
           language: LANGUAGES.find(l => l.code === language)?.label || 'English',
           previousContext: missingFieldsContext
         })
       });
-      const resData = await response.json();
       console.log('Extracted intent:', resData);
       
-      if (resData.data) {
+      if (resData.data && typeof resData.data === 'object') {
         const data = resData.data;
         setMissingFieldsContext(data);
         setExtractedData(data);
@@ -224,10 +227,12 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
           setSystemPrompt("All set! Calculating your fare...");
           await computeDynamicFare(data);
         }
+      } else {
+        throw new Error('The server returned no booking details.');
       }
     } catch (error) {
       console.error('Failed to extract intent:', error);
-      setSystemPrompt('Failed to understand. Please try again.');
+      setSystemPrompt('Voice processing is temporarily unavailable. Please use Manual Booking.');
     } finally {
       setIsProcessing(false);
       isProcessingRef.current = false;
@@ -235,7 +240,7 @@ const VoiceScreen: React.FC<VoiceScreenProps> = ({ onClose, onSwitchToManual }) 
   };
 
   const handleConfirm = () => {
-    if (extractedData && basePrice !== null) {
+    if (canProceed) {
       // Ensure date is set (default to now if LLaMA returned null for relative time)
       const bookingData = {
         ...extractedData,

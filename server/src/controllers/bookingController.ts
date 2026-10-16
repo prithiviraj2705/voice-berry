@@ -3,6 +3,7 @@ import Groq from 'groq-sdk';
 import { prisma } from '../prisma';
 
 const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+const VOICE_UNAVAILABLE_MESSAGE = 'Voice processing is temporarily unavailable. Please use manual booking.';
 
 export const extractIntent = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -14,7 +15,8 @@ export const extractIntent = async (req: Request, res: Response): Promise<void> 
     }
 
     if (!groq) {
-      res.status(500).json({ error: 'Groq API key not configured' });
+      console.error('Groq extraction unavailable: GROQ_API_KEY is not configured');
+      res.status(503).json({ error: VOICE_UNAVAILABLE_MESSAGE });
       return;
     }
 
@@ -43,17 +45,35 @@ export const extractIntent = async (req: Request, res: Response): Promise<void> 
 
     const chatCompletion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: 'llama-3.1-8b-instant',
+      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
       response_format: { type: 'json_object' }
     });
 
     const content = chatCompletion.choices[0]?.message?.content;
-    const extractedData = content ? JSON.parse(content) : null;
+    if (!content) {
+      throw new Error('Groq returned an empty response');
+    }
+    const extractedData = JSON.parse(content);
+    if (!extractedData || typeof extractedData !== 'object') {
+      throw new Error('Groq returned an invalid booking response');
+    }
 
     res.json({ data: extractedData, confidence: 94 });
-  } catch (error) {
-    console.error('Groq extraction error:', error);
-    res.status(500).json({ error: 'Failed to extract intent' });
+  } catch (error: any) {
+    const status = error?.status || error?.statusCode;
+    const code = error?.code || error?.error?.code;
+    const message = String(error?.message || '');
+    const isModelError = code === 'model_not_found' || message.toLowerCase().includes('model') && message.toLowerCase().includes('does not exist');
+    const isAuthError = status === 401 || code === 'invalid_api_key' || message.toLowerCase().includes('invalid api key');
+    const isRateLimitError = status === 429 || code === 'rate_limit_exceeded';
+
+    console.error('Groq extraction error:', {
+      status,
+      code,
+      message,
+      category: isModelError ? 'model' : isAuthError ? 'authentication' : isRateLimitError ? 'rate_limit' : 'provider_or_parse'
+    });
+    res.status(isRateLimitError ? 429 : isAuthError || isModelError ? 503 : 500).json({ error: VOICE_UNAVAILABLE_MESSAGE });
   }
 };
 
